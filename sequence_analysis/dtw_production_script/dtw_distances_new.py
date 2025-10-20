@@ -60,7 +60,7 @@ print(f"Total patients in sample: {tot_pats}")
 print(f"Unique sequences: {round(100 * unique_seq / tot_pats, 2)}%")
 ####
 
-seq_df_m = seq_df.copy().iloc[:10_000]
+seq_df_m = seq_df.copy()#.sample(10_000)
 seq_df_m_small = (seq_df_m[seq_df_m["f_sequence_only_new"].apply(
     lambda x: any(c.startswith("F") for c in x) and len(x) >= 2)]
                   .dropna())
@@ -156,7 +156,7 @@ print(f"Cost matrix shape: {cost_matrix.shape}")
 
 # HIGHLY OPTIMIZED DTW IMPLEMENTATION
 @jit(nopython=True, fastmath=True, cache=True)
-def dtw_custom_cost_fast(s1, s2, cost_matrix):
+def dtw_custom_cost_fast(s1, s2, cost_matrix, norm = False):
     """
     Ultra-fast DTW implementation using Numba with custom cost matrix.
     Uses integer indices for direct array access - much faster than dictionary lookups.
@@ -182,14 +182,18 @@ def dtw_custom_cost_fast(s1, s2, cost_matrix):
 
     final_dtw_distance = prev_row[m]
 
-    # Normalization Step: Divide by the average sequence length
-    normalization_factor = (len(s1) + len(s2)) / 2
+    if norm:
+        # Normalization Step: Divide by the average sequence length
+        normalization_factor = (len(s1) + len(s2)) / 2
 
-    # Avoid division by zero
-    if normalization_factor == 0:
-        return 0.0
+        # Avoid division by zero
+        if normalization_factor == 0:
+            return 0.0
 
-    normalized_distance = final_dtw_distance / normalization_factor
+        normalized_distance = final_dtw_distance / normalization_factor
+    else:
+        normalized_distance = final_dtw_distance
+
     return normalized_distance
 
 
@@ -274,7 +278,7 @@ output_path = "C:\\git-projects\\mental_health\\sequence_analysis\\common_diseas
 # Adjust chunk_size based on your available RAM
 # Smaller chunk_size = less memory usage but slower
 # Larger chunk_size = more memory usage but faster
-chunk_size = 5000
+chunk_size = 3500
 
 try:
     dist_full = chunked_dtw_matrix(sequences_indices, cost_matrix,
@@ -293,13 +297,13 @@ except MemoryError:
 print("Converting memory-mapped file to .npy format...")
 dist_array = np.memmap(output_path, dtype=np.float32, mode='r', shape=(len(sequences_indices), len(sequences_indices)))
 np.save(
-    "C:\\git-projects\\mental_health\\sequence_analysis\\common_disease_trajectories\\Simons_distances\\distance_matrices\\dtw_distance_matrix_MEN_ONLY_F_4DIGITS.npy",
+    "C:\\git-projects\\mental_health\\sequence_analysis\\common_disease_trajectories\\Simons_distances\\distance_matrices\\dtw_distance_M_3_2010_noNorm.npy",
     dist_array)
 
 # Save patient IDs
 ids = np.array(seq_df_m_small["patient_no"].tolist())
 np.save(
-    "C:\\git-projects\\mental_health\\sequence_analysis\\common_disease_trajectories\\Simons_distances\\distance_matrices\\patient_ids_MEN_ONLY_F_4DIGITS.npy",
+    "C:\\git-projects\\mental_health\\sequence_analysis\\common_disease_trajectories\\Simons_distances\\distance_matrices\\patient_ids_M_3_2010.npy",
     ids)
 print("Patient IDs saved!")
 
