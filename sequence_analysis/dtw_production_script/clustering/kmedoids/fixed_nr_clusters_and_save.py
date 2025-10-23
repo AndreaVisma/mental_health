@@ -10,7 +10,7 @@ import os
 # Configuration
 # -------------------
 distance_matrix_path = (
-    "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\dtw_distance_M_3_2010_noNorm.npy"
+    "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\dtw_distance_F_3_2310_noNorm.npy"
 )
 output_dir = (
     "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\"
@@ -22,7 +22,7 @@ os.makedirs(output_dir, exist_ok=True)
 # -------------------
 # Parameters
 # -------------------
-sample_size = 3500   # adjust as needed (2000–5000 usually fine)
+sample_size = 20_000   # adjust as needed (2000–5000 usually fine)
 n_clusters = 4
 random_state = 42
 
@@ -70,8 +70,8 @@ except Exception as e:
 # -------------------
 # Save outputs
 # -------------------
-labels_path = os.path.join(output_dir, f"labels_{n_clusters}_clusters_subsample.npy")
-indices_path = os.path.join(output_dir, f"indices_subsample.npy")
+labels_path = os.path.join(output_dir, f"labels_{n_clusters}_clusters_subsample_F.npy")
+indices_path = os.path.join(output_dir, f"indices_subsample_F.npy")
 
 np.save(labels_path, labels)
 np.save(indices_path, sample_indices)

@@ -12,25 +12,34 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
+#############
+## GENDER choice
+gen ="F"
+if gen == "F":
+    sex_id = 2
+else:
+    sex_id = 1
+#####
+
 # -------------------------
 # PATHS
 # -------------------------
-plot_folder = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\figures\\"
+plots_path = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\figures\\"
 
 # Metadata & input
 metadata_path = "C:\\Data\\my_datasets\\medical\\patients_metadata.csv"
-ids_path = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\patient_ids_M_3_2010.npy"
+ids_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\patient_ids_{gen}_3_2310.npy"
 seq_path = "C:\\Data\\my_datasets\\medical\\diagnosis_sequences.parquet"
 
 # Cluster results (from subsample)
-labels_path = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\labels_4_clusters_subsample.npy"
-indices_path = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\indices_subsample.npy"
+labels_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\labels_4_clusters_subsample_{gen}.npy"
+indices_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\indices_subsample_{gen}.npy"
 
 # -------------------------
 # LOAD DATA
 # -------------------------
 metadata = pd.read_csv(metadata_path)
-males = metadata.query("sex_id == 1")["patient_no"].tolist()
+males = metadata.query(f"sex_id == {sex_id}")["patient_no"].tolist()
 ids = np.load(ids_path)
 
 # diagnosis sequences
@@ -203,7 +212,132 @@ for i, (size, uniq) in enumerate(zip(cluster_sizes.values, unique_seqs)):
     axes[1, 1].annotate(f'Cluster {i}', (size, uniq), xytext=(5, 5), textcoords='offset points')
 
 plt.tight_layout()
+fig.savefig(plots_path + f"\\{gen}_age_description_clusters.png")
 plt.show(block=True)
 
 ##################
-#
+# Look at migrants
+
+print("\n6. MIGRANT REPRESENTATION BY CLUSTER:")
+print("-" * 40)
+
+dem_df['is_migrant'] = dem_df['nationality_id'].apply(lambda x: 0 if x == 1 else 1)
+
+migrant_stats = (
+    dem_df.groupby('cluster')['is_migrant']
+    .agg(['count', 'sum'])
+    .rename(columns={'count': 'n_patients', 'sum': 'n_migrants'})
+)
+migrant_stats['pct_migrants'] = (migrant_stats['n_migrants'] / migrant_stats['n_patients']) * 100
+print(migrant_stats.round(2))
+
+plt.figure(figsize=(8,5))
+plt.bar(migrant_stats.index, migrant_stats['pct_migrants'], color='tomato')
+plt.title("Migrant Representation by Cluster")
+plt.xlabel("Cluster")
+plt.ylabel("% Migrants")
+plt.show(block = True)
+
+########
+# most common diagnoses
+from itertools import combinations
+from collections import Counter
+
+def extract_ordered_combinations(seq, n):
+    """Extract all ordered n-combinations (non-consecutive) from a sequence."""
+    return list(combinations(seq, n))
+
+print("\n7. MOST FREQUENT DIAGNOSES PER CLUSTER:")
+print("-" * 40)
+
+top_n = 5
+for cluster_id, cluster_data in dem_df.groupby('cluster'):
+    all_codes = list(chain.from_iterable(cluster_data['f_sequence_only_new']))
+    counter = Counter(all_codes)
+    top_codes = counter.most_common(top_n)
+    print(f"\nCluster {cluster_id} — Top {top_n} F-codes:")
+    for code, freq in top_codes:
+        print(f"  {code}: {freq} occurrences")
+
+print("\n8. MOST FREQUENT DIAGNOSIS SEQUENCES PER CLUSTER:")
+print("-" * 40)
+
+top_n = 5
+for cluster_id, cluster_data in dem_df.groupby('cluster'):
+    pairs = Counter()
+    triplets = Counter()
+    for seq in cluster_data['f_sequence_only_new']:
+        pairs.update(extract_ordered_combinations(seq, 2))
+        triplets.update(extract_ordered_combinations(seq, 3))
+
+    print(f"\nCluster {cluster_id} — Top {top_n} 2-code Sequences:")
+    for seq, freq in pairs.most_common(top_n):
+        print(f"  {seq}: {freq}")
+
+    print(f"\nCluster {cluster_id} — Top {top_n} 3-code Sequences:")
+    for seq, freq in triplets.most_common(top_n):
+        print(f"  {seq}: {freq}")
+
+##################
+# RADAR PLOTS
+
+from math import pi
+
+def get_f_chapter_probs(df):
+    chapters = [f"F{i}" for i in range(0, 10)]
+    chapter_probs = {}
+    for ch in chapters:
+        # Patient-level: has any diagnosis from this chapter
+        has_ch = df['f_sequence_only_new'].apply(lambda seq: any(s.startswith(ch) for s in seq))
+        chapter_probs[ch] = has_ch.mean()
+    return chapter_probs
+
+cluster_profiles = {}
+for cluster_id, cluster_data in dem_df.groupby('cluster'):
+    cluster_profiles[cluster_id] = get_f_chapter_probs(cluster_data)
+
+# Convert to DataFrame
+radar_df = pd.DataFrame(cluster_profiles).T
+radar_df.index.name = "Cluster"
+
+def plot_radar(df, cluster_id, normalize = False):
+    """
+    Draws a radar chart for one cluster.
+    - df: DataFrame with clusters as rows and F-chapters as columns
+    - cluster_id: which cluster to plot
+    - normalize: if True, scale so max radius = 1
+    - save_path: optional file path to save the figure
+    """
+    categories = list(df.columns)
+    values = df.loc[cluster_id].values.astype(float)
+
+    if normalize:
+        # Scale values so the largest value across all clusters = 1
+        max_val = df.values.max()
+        values = values / max_val
+
+    # close the polygon
+    values = values.tolist()
+    values += values[:1]
+    N = len(categories)
+
+    # angle setup
+    angles = [n / float(N) * 2 * pi for n in range(N)]
+    angles += angles[:1]
+
+    # plotting
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax = plt.subplot(111, polar=True)
+    plt.xticks(angles[:-1], categories, color='grey', size=10)
+    ax.set_rlabel_position(0)
+    plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0], ["0.2", "0.4", "0.6", "0.8", "1.0"], color="grey", size=8)
+    plt.ylim(0, 1)  # ✅ fix outer radius to 1
+
+    ax.plot(angles, values, linewidth=2, linestyle='solid', color = "red")
+    ax.fill(angles, values, alpha=0.25, color = "red")
+    plt.title(f"Cluster {cluster_id} Risk Profile", size=14, y=1.1)
+    fig.savefig(plots_path + f"radar_plots\\{gen}_cluster_{cluster_id}_radar.png")
+    plt.show(block = True)
+
+for cluster_id in radar_df.index:
+    plot_radar(radar_df, cluster_id)

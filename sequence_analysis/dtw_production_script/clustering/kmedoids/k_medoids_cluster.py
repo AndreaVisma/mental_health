@@ -8,7 +8,7 @@ import os
 
 # --- Paths ---
 distance_matrix_path = (
-    "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\dtw_distance_M_3_2010_noNorm.npy"
+    "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\dtw_distance_F_3_2310_noNorm.npy"
 )
 
 # --- Utility ---
@@ -40,7 +40,7 @@ for k in tqdm(k_values):
         method="alternate",
     )
 
-    # labels = kmedoids.fit_predict(dtw_distances)
+    labels = kmedoids.fit_predict(dtw_distances)
 
     # Inertia equivalent: total distance to medoids
     inertias.append(kmedoids.inertia_)
