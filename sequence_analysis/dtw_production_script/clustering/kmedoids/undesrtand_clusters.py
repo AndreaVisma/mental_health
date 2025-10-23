@@ -24,7 +24,7 @@ plot_folder = "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_productio
 metadata = pd.read_csv("C:\\Data\\my_datasets\\medical\\patients_metadata.csv")
 males = metadata.query("sex_id == 1")["patient_no"].tolist()
 
-ids = np.load("C:\\git-projects\\mental_health\\sequence_analysis\\common_disease_trajectories\\Simons_distances\\distance_matrices\\patient_ids_MEN_ONLY_F_4DIGITS.npy")
+ids = np.load("C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\patient_ids_M_3_2010.npy")
 
 # Load data
 seq_df = pd.read_parquet("C:\\Data\\my_datasets\\medical\\diagnosis_sequences.parquet")
@@ -74,7 +74,7 @@ seq_df_m_small = (seq_df_m[seq_df_m["f_sequence_only_new"].apply(
 ###############################
 ##### CLUSTERS
 
-labels = np.load("C:\git-projects\mental_health\sequence_analysis\dtw_production_script\clustering\kmedoids\labels_5_clusters.npy")
+labels = np.load("C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\clustering\\kmedoids\\labels_4_clusters.npy")
 seq_df_m_small['cluster'] = labels
 
 result = pyreadr.read_r('C:\\Data\\my_datasets\\medical\\patients_data.rds') # also works for RData
