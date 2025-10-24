@@ -1,155 +1,124 @@
+
+
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
+from sklearn.metrics import silhouette_score
+from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
+from tqdm import tqdm
 import os
-import sys
 
-# --- CONFIGURATION ---
-distance_matrix_path = ("c://git-projects//mental_health//sequence_analysis//common_disease_trajectories//"
-                        "Simons_distances//distance_matrices//dtw_distance_matrix_MEN_ONLY_F_4DIGITS.npy")
-# Hierarchical clustering can be slow/memory intensive for plotting large N
-MAX_SAMPLES = 10_000
-DEFAULT_K = 5
+# --- Paths ---
+distance_matrix_path = (
+    "C:\\git-projects\\mental_health\\sequence_analysis\\dtw_production_script\\matrices_store\\dtw_distance_F_3_2310_noNorm.npy"
+)
 
 
-# --- FUNCTIONS ---
-def load_distance_matrix(matrix_path, max_samples=None):
-    """Load and validate distance matrix, optionally subsampling."""
-    if not os.path.exists(matrix_path):
-        raise FileNotFoundError(f"Distance matrix not found at: {matrix_path}")
-
-    dtw_distances = np.load(matrix_path)
-
-    if dtw_distances.shape[0] != dtw_distances.shape[1]:
-        raise ValueError("Distance matrix must be square.")
-
-    print(f"Loaded DTW distance matrix with shape: {dtw_distances.shape}")
-
-    if max_samples is not None and dtw_distances.shape[0] > max_samples:
-        print(f"Subsampling matrix to {max_samples}x{max_samples} for clustering analysis.")
-        return dtw_distances[:max_samples, :max_samples]
-
-    return dtw_distances
+# --- Utility ---
+def load_and_sample(matrix_path, sample_size=1000):
+    """Load DTW distance matrix and take a random sample for quick testing"""
+    matrix = np.load(matrix_path, mmap_mode="r")
+    n = min(sample_size, matrix.shape[0])
+    indices = np.random.choice(matrix.shape[0], n, replace=False)
+    return matrix[np.ix_(indices, indices)], indices
 
 
-def get_merge_distances(Z):
-    """
-    Extracts the merge distance (height) and corresponding number of clusters (k)
-    from the linkage matrix Z.
-    """
-    N = len(Z) + 1  # Total number of points
+# --- Load data ---
+dtw_distances, sampled_indices = load_and_sample(distance_matrix_path, 2000)
+print(f"Working with {dtw_distances.shape[0]} samples")
 
-    # Z[:, 2] contains the distance (height) at which the merge occurred
-    distances = Z[:, 2]
+# --- Hierarchical Clustering setup ---
+k_values = range(2, 12)
+linkage_methods = ['ward', 'complete', 'average', 'single']  # Different linkage criteria
+best_silhouette = -1
+best_k = 2
+best_method = 'complete'
 
-    # The number of clusters remaining after the i-th merge is N - (i + 1)
-    # We want k to go from N down to 2.
-    k_values = np.arange(N, 1, -1)
+# Convert distance matrix to condensed form (required by scipy linkage)
+condensed_dist = squareform(dtw_distances, checks=False)
 
-    # When k=N, distance is 0.0 (no merges). We start from k=N-1 down to k=2.
-    # The plot shows the distance for the merge that reduces k to k-1.
+print("Performing hierarchical clustering with different linkage methods...")
 
-    # We plot (N - i) clusters vs. the distance Z[i-1, 2]
-    # For k=N-1 (first merge), the distance is distances[0].
-    # For k=2 (last merge), the distance is distances[-1].
+for method in linkage_methods:
+    print(f"\n--- Testing linkage method: {method} ---")
 
-    # We want the plot to start high (low k) and go down (high k), or vice versa.
+    # Perform hierarchical clustering
+    # Note: 'ward' method requires Euclidean distances, others work with precomputed
+    if method == 'ward':
+        # For ward linkage, we need to ensure the input is appropriate
+        # You might want to use a different approach or skip ward for distance matrices
+        Z = linkage(condensed_dist, method=method, metric='euclidean')
+    else:
+        Z = linkage(condensed_dist, method=method, metric='precomputed')
 
-    # Let's plot k vs. the distance that created those k clusters (starting from N)
+    silhouettes = []
 
-    # Number of clusters (k) after the merge (i=0 to N-2)
-    k_after_merge = N - np.arange(len(distances)) - 1
+    for k in tqdm(k_values, desc=f"{method}"):
+        # Cut dendrogram to get k clusters
+        labels = fcluster(Z, k, criterion='maxclust')
 
-    # We discard the first N-2 entries (which are not visually meaningful)
-    # and focus on the last 50 merges (k=51 down to k=2) for better visualization
-    start_index = max(0, len(distances) - 50)
+        # Calculate silhouette score
+        if k > 1:
+            silhouette_avg = silhouette_score(dtw_distances, labels, metric="precomputed")
+            silhouettes.append(silhouette_avg)
 
-    # Distances are already sorted ascendingly by SciPy's linkage.
-    # We reverse them to plot k=2 (highest distance) down to k=51 (lowest distance)
-    # k_plot: [2, 3, 4, ..., 51]
-    # distance_plot: [Z[-1, 2], Z[-2, 2], ..., Z[N-51, 2]]
-    k_plot = k_after_merge[start_index:]
-    distance_plot = distances[start_index:]
+            # Track best configuration
+            if silhouette_avg > best_silhouette:
+                best_silhouette = silhouette_avg
+                best_k = k
+                best_method = method
+        else:
+            silhouettes.append(0)
 
-    return k_plot, distance_plot
+    # Plot for this linkage method
+    plt.figure(figsize=(10, 4))
 
+    plt.subplot(1, 2, 1)
+    plt.plot(k_values[1:], silhouettes[1:], 'o-')
+    plt.title(f'Silhouette Score ({method} linkage)')
+    plt.xlabel('k')
+    plt.ylabel('Silhouette Score')
+    plt.grid(True, alpha=0.3)
 
-def find_optimal_k_distance_jump(Z):
-    """
-    Identifies the largest jump in distance (dendrogram height) to suggest optimal k.
-    """
-    distances = Z[:, 2]
+    plt.subplot(1, 2, 2)
+    # Plot dendrogram for the best k (truncated for readability)
+    from scipy.cluster.hierarchy import dendrogram
 
-    # Calculate the difference (jump) between successive merging distances
-    distance_jumps = np.diff(distances)
+    plt.title(f'Dendrogram ({method} linkage)')
+    dendrogram(Z, truncate_mode='lastp', p=min(20, len(k_values)), show_leaf_counts=True)
 
-    if len(distance_jumps) == 0:
-        return DEFAULT_K
+    plt.tight_layout()
+    plt.show()
 
-    # The index of the largest jump suggests the best cut point.
-    largest_jump_index = np.argmax(distance_jumps)
+print(f"\nBest configuration: k={best_k}, method='{best_method}', silhouette={best_silhouette:.4f}")
 
-    N = len(Z) + 1
-    # Number of clusters (k) = N - (index of the largest jump)
-    optimal_k = N - largest_jump_index
+# --- Final clustering with best parameters ---
+print(f"\nPerforming final clustering with best parameters...")
+if best_method == 'ward':
+    Z_final = linkage(condensed_dist, method=best_method, metric='euclidean')
+else:
+    Z_final = linkage(condensed_dist, method=best_method, metric='precomputed')
 
-    # Ensure k is a valid number
-    return max(2, min(N - 1, optimal_k))
+final_labels = fcluster(Z_final, best_k, criterion='maxclust')
 
+# --- Plot final results ---
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
-# --- MAIN EXECUTION ---
-try:
-    # Load the DTW distance matrix
-    dtw_distances = load_distance_matrix(distance_matrix_path, max_samples=MAX_SAMPLES)
-    N = dtw_distances.shape[0]
+# Silhouette analysis
+from scipy.cluster.hierarchy import dendrogram
 
-    # Convert to condensed form for SciPy
-    condensed_dist_matrix = squareform(dtw_distances)
+dendrogram(Z_final, truncate_mode='lastp', p=min(30, best_k * 2), ax=ax1)
+ax1.set_title(f'Final Dendrogram ({best_method} linkage, k={best_k})')
 
-    # 1. Perform Hierarchical Linkage (using 'average' for non-Euclidean DTW distance)
-    Z = linkage(condensed_dist_matrix, method='average')
-    print(f"Linkage matrix (Z) created with shape: {Z.shape}")
-
-    # 2. Get data for the Information Loss Plot
-    k_plot, distance_plot = get_merge_distances(Z)
-
-    # 3. Find Optimal K for the plot annotation
-    optimal_k_suggestion = find_optimal_k_distance_jump(Z)
-    distance_threshold = Z[N - optimal_k_suggestion, 2]  # Height at the suggested cut
-
-    # 4. Extract Clusters for a brief printout
-    clusters = fcluster(Z, optimal_k_suggestion, criterion='maxclust')
-    print(f"\nExtracted {optimal_k_suggestion} clusters. Cluster counts:\n{np.unique(clusters, return_counts=True)}")
-
-
-except FileNotFoundError as e:
-    print(e)
-    sys.exit(1)
-except Exception as e:
-    print(f"An unexpected error occurred: {e}")
-    sys.exit(1)
-
-# --- VISUALIZATION (Information Loss Plot) ---
-plt.figure(figsize=(10, 6))
-
-# Plot the distance against the number of clusters (k)
-plt.plot(k_plot, distance_plot, marker='o', linestyle='-',
-         color='tab:red', linewidth=2, markersize=5)
-
-# Highlight the suggested cut point (the largest jump)
-plt.axvline(x=optimal_k_suggestion, color='k', linestyle='--', alpha=0.7)
-plt.axhline(y=distance_threshold, color='k', linestyle='--', alpha=0.7)
-
-plt.title("Information Preservation vs. Number of Clusters (DTW Hierarchical)", fontsize=14)
-plt.xlabel("Number of Clusters (k)", fontsize=12)
-plt.ylabel("Distance/Dissimilarity at Merge (Information Loss)", fontsize=12)
-plt.grid(True, alpha=0.3)
-plt.xticks(k_plot[::max(1, len(k_plot) // 10)])  # Make sure x-ticks aren't too crowded
-plt.legend([f'Suggested Cut: k={optimal_k_suggestion}'], loc='upper right')
-plt.gca().invert_xaxis()  # Plot k decreasing, as is traditional for this view
+# Cluster distribution
+unique, counts = np.unique(final_labels, return_counts=True)
+ax2.bar(unique, counts)
+ax2.set_title('Cluster Size Distribution')
+ax2.set_xlabel('Cluster')
+ax2.set_ylabel('Number of Points')
 
 plt.tight_layout()
-plt.show()
+plt.show(block = True)
 
-print("\nHierarchical clustering information loss plot complete.")
+print(f"\nCluster sizes: {dict(zip(unique, counts))}")
+print(f"Final silhouette score: {best_silhouette:.4f}")
