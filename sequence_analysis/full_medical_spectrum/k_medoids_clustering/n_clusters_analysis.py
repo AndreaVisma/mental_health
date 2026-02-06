@@ -15,6 +15,13 @@ import os
 
 #############
 ## GENDER choice
+
+# -------------------
+# Parameters
+# -------------------
+a_to_n = False
+four_digits = True
+
 gender = "F"
 if gender == "F":
     sex_id = 2
@@ -25,22 +32,51 @@ else:
 
 sample = True
 sample_size = 20_000
-n_clusters = 9
+n_clusters = 8
+random_state = 42
+
+# --- Paths ---
+if a_to_n:
+    distance_matrix_path = (
+        f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\dtw_A_to_N_{gender}_sampled_{sample}_noNorm.npy"
+    )
+elif four_digits:
+    distance_matrix_path = (
+        f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\dtw_4digits_{gender}_sampled_{sample}_noNorm.npy"
+    )
+else:
+    distance_matrix_path = (
+        f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\dtw_distance_{gender}_sampled_{sample}_noNorm.npy"
+    )
+
 #####
 
 # -------------------------
 # PATHS
 # -------------------------
-plots_path = "C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\figures\\"
+if a_to_n:
+    plots_path = "C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\figures\\A_to_N\\"
+elif four_digits:
+    plots_path = "C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\figures\\four_digits\\"
 
 # Metadata & input
 metadata_path = "C:\\Data\\my_datasets\\medical\\patients_metadata.csv"
-ids_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\patient_ids_{gender}_sampled_{sample}.npy"
 seq_path = "C:\\Data\\my_datasets\\medical\\diagnosis_sequences.parquet"
 
 # Cluster results (from subsample)
-labels_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\labels_{n_clusters}_clusters_subsample_{gender}_sample_{sample_size}.npy"
-indices_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\indices_{n_clusters}_subsample_{gender}_sample_{sample_size}.npy"
+if a_to_n:
+    ids_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\ids_A_to_N_{gender}_sampled_{sample}.npy"
+    labels_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\labels_A_to_N_{n_clusters}_clusters_subsample_{gender}_sample_{sample_size}.npy"
+    indices_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\indices_A_to_N_{n_clusters}_subsample_{gender}_sample_{sample_size}.npy"
+elif four_digits:
+    ids_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\ids_4digits_{gender}_sampled_{sample}.npy"
+    labels_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\labels_4digits_{n_clusters}_clusters_subsample_{gender}_sample_{sample_size}.npy"
+    indices_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\indices_4digits_{n_clusters}_subsample_{gender}_sample_{sample_size}.npy"
+else:
+    ids_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\patient_ids_{gender}_sampled_{sample}.npy"
+    labels_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\labels_{n_clusters}_clusters_subsample_{gender}_sample_{sample_size}.npy"
+    indices_path = f"C:\\git-projects\\mental_health\\sequence_analysis\\full_medical_spectrum\\store\\indices_{n_clusters}_subsample_{gender}_sample_{sample_size}.npy"
+
 
 # -------------------------
 # LOAD DATA
@@ -69,16 +105,29 @@ def unique_in_order_ONLYF(seq):
                 new_seq.append(code)
     return new_seq
 
-def four_to_three_digits(seq):
-    """Truncate codes to 3 digits"""
-    return [x[:3] for x in seq]
+if not four_digits:
+    def four_to_three_digits(seq):
+        """Truncate codes to 3 digits"""
+        return [x[:3] for x in seq]
 
-seq_df['sequence'] = seq_df['sequence'].apply(four_to_three_digits)
+    seq_df['sequence'] = seq_df['sequence'].apply(four_to_three_digits)
 
 # Optimized unique codes extraction
 unique_codes = sorted(set(chain.from_iterable(seq_df['sequence'])))
 code_counts = Counter(chain.from_iterable(seq_df['sequence']))
 top_100_codes = [c for c, _ in code_counts.most_common(100)]
+codes_a_to_n = sorted([code for code in unique_codes if 'A' <= code[0] <= 'N'])
+
+def unique_in_order_ONLYF(seq):
+    """Remove duplicates while preserving order, keep only F codes"""
+    seen = set()
+    new_seq = []
+    for code in seq:
+        if code.startswith("F"):
+            if code not in seen:
+                seen.add(code)
+                new_seq.append(code)
+    return new_seq
 
 def unique_in_order_top100_and_F(seq):
     """Keep unique codes in original order, restricted to F-codes or top 100 frequent codes."""
@@ -91,13 +140,64 @@ def unique_in_order_top100_and_F(seq):
                 out.append(code)
     return out
 
-seq_df['f_sequence_only_new'] = (
-    seq_df['sequence'].apply(unique_in_order_top100_and_F)
-)
+def keep_f(seq):
+    if any(code.startswith("F") for code in seq):
+        return True
+    else:
+        return False
+
+def unique_in_order(seq):
+    """Remove duplicates while preserving order, keep only F codes"""
+    seen = set()
+    new_seq = []
+    for code in seq:
+        if code in codes_a_to_n:
+            if code not in seen:
+                seen.add(code)
+                new_seq.append(code)
+    return new_seq
+
+
+if a_to_n:
+    def process_sequence(seq):
+        """Remove duplicates (preserve order), keep only A–N codes, and flag if any F code."""
+        seen = set()
+        new_seq = []
+        has_f = False
+        for code in seq:
+            if code in codes_a_to_n and code not in seen:
+                seen.add(code)
+                new_seq.append(code)
+                if not has_f and code.startswith("F"):
+                    has_f = True
+        return new_seq, has_f
+
+
+    # Sequential version (already much faster than two .apply calls)
+    results = [process_sequence(seq) for seq in seq_df["sequence"]]
+    seq_df["f_sequence_only_new"], seq_df["has_F"] = zip(*results)
+elif four_digits:
+    def unique_in_order_ONLYF(seq):
+        """Remove duplicates while preserving order, keep only F codes"""
+        seen = set()
+        new_seq = []
+        for code in seq:
+            if code.startswith("F"):
+                if code not in seen:
+                    seen.add(code)
+                    new_seq.append(code)
+        return new_seq
+
+    seq_df["f_sequence_only_new"] = seq_df["sequence"].apply(unique_in_order_ONLYF)
+else:
+    seq_df['f_sequence_only_new'] = seq_df['sequence'].apply(unique_in_order)
+
+
+seq_df["has_F"] = seq_df['f_sequence_only_new'].apply(keep_f)
 
 # Filter valid sequences
 seq_df['length'] = seq_df['f_sequence_only_new'].str.len()
-seq_df = seq_df[seq_df['length'] >= 3]
+seq_df = seq_df[seq_df['length'] >= 2]
 
 tot_pats = len(seq_df)
 unique_seq = len({tuple(seq) for seq in seq_df['f_sequence_only_new']})
@@ -105,7 +205,6 @@ print(f"Total patients in sample: {tot_pats}")
 print(f"Unique sequences: {round(100 * unique_seq / tot_pats, 2)}%")
 
 seq_df_m_small = seq_df.copy()
-
 
 # -------------------------
 # LOAD SUBSAMPLE LABELS + INDICES
@@ -362,7 +461,7 @@ def get_all_chapter_probs(df):
 
 cluster_profiles = {}
 for cluster_id, cluster_data in dem_df.groupby('cluster'):
-    cluster_profiles[cluster_id] = get_all_chapter_probs(cluster_data)
+    cluster_profiles[cluster_id] = get_f_chapter_probs(cluster_data)
 
 # Convert to DataFrame
 radar_df = pd.DataFrame(cluster_profiles).T
@@ -372,7 +471,7 @@ radar_df.index.name = "Cluster"
 # RADAR comparison with population
 
 # Whole population profile
-population_profile = get_all_chapter_probs(dem_df)
+population_profile = get_f_chapter_probs(dem_df)
 
 # Combine into a single DataFrame
 radar_df = pd.DataFrame(cluster_profiles).T
@@ -464,6 +563,7 @@ plt.bar(migrant_stats.index, migrant_stats['pct_migrants'], color='tomato')
 plt.title("Migrant Representation by Cluster")
 plt.xlabel("Cluster")
 plt.ylabel("% Migrants")
+plt.savefig(plots_path + f"pct_migrants_{gender}", bbox_inches="tight", dpi=300)
 plt.show(block = True)
 
 print("\n7. TOP MIGRANT NATIONALITIES PER CLUSTER:")
